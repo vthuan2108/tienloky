@@ -16,7 +16,8 @@ import {
   TimeBlock,
   Priority,
   TodoItem,
-  CultivationManual
+  CultivationManual,
+  CultivationNote
 } from './types';
 import { DEFAULT_CHALLENGES, getRealmInfo } from './data';
 import CultivationHeader from './components/CultivationHeader';
@@ -31,6 +32,9 @@ import TodoSection from './components/TodoSection';
 import ForbiddenNotes from './components/ForbiddenNotes';
 import DailyRituals from './components/DailyRituals';
 import CultivationManualsSection from './components/CultivationManualsSection';
+import { initAuth, googleSignIn, logout as firebaseLogout } from './lib/firebase';
+import { saveUserDataToCloud, loadUserDataFromCloud } from './lib/firestoreSync';
+import { User } from 'firebase/auth';
 import {
   Download,
   Flame,
@@ -42,7 +46,9 @@ import {
   Sparkles,
   Lock,
   BookOpen,
-  Scroll
+  Scroll,
+  LogIn,
+  Cloud
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -323,6 +329,32 @@ export default function App() {
     ];
   });
 
+  const [notes, setNotes] = useState<CultivationNote[]>(() => {
+    const saved = localStorage.getItem('tlk_forbidden_notes');
+    if (saved) {
+      try { return JSON.parse(saved); } catch (e) { /* fallback */ }
+    }
+    return [
+      {
+        id: 'welcome_note_1',
+        title: 'Bí Kíp Tu Tiên Vô Song',
+        content: 'Chào mừng Đạo hữu đến với Cấm Địa Tông Môn. Nơi đây dùng để lưu trữ các mật thư, công pháp và bí kíp tu luyện riêng tư.\n\n- Ấn nút ghim để Trấn điện mật thư lên đầu trang.\n- Thay đổi linh lực màu sắc của mật tịch theo các phẩm cấp.\n- Tìm kiếm dễ dàng bằng Thần Nhãn Tìm Kiếm.\n- Nhấp trực tiếp vào mật tịch để tinh sửa.',
+        isPinned: true,
+        color: 'indigo',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }
+    ];
+  });
+
+  useEffect(() => {
+    localStorage.setItem('tlk_forbidden_notes', JSON.stringify(notes));
+  }, [notes]);
+
+  // --- GOOGLE LOGIN & CLOUD SYNC STATES ---
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isCloudSyncing, setIsCloudSyncing] = useState<boolean>(false);
+
   // Focus mode task focus state
   const [focusSelectedTaskId, setFocusSelectedTaskId] = useState<string>('');
 
@@ -390,6 +422,128 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('tlk_todos', JSON.stringify(todoItems));
   }, [todoItems]);
+
+  // --- GOOGLE AUTH & CLOUD SYNC EFFECTS ---
+  const handleAuthSuccess = async (user: User) => {
+    setCurrentUser(user);
+    setIsCloudSyncing(true);
+    try {
+      const cloudData = await loadUserDataFromCloud(user.uid);
+      if (cloudData) {
+        if (confirm(`✨ PHÁT HIỆN ĐẠO QUẢ TRÊN ĐÁM MÂY!\n\nChào mừng Đạo hữu ${cloudData.userName} quay trở lại.\nĐạo hữu có muốn đồng bộ tiến trình tu luyện mới nhất từ đám mây xuống trình duyệt này không?`)) {
+          setUserName(cloudData.userName);
+          setPlanningCompletedDate(cloudData.planningCompletedDate);
+          setReflectionCompletedDate(cloudData.reflectionCompletedDate);
+          setTodoItems(cloudData.todoItems || []);
+          setHabits(cloudData.habits || []);
+          setCultState(cloudData.cultState);
+          setDailyLogs(cloudData.dailyLogs || []);
+          setIeltsLogs(cloudData.ieltsLogs || []);
+          setIeltsTargets(cloudData.ieltsTargets);
+          setCamBooksList(cloudData.camBooksList || []);
+          setManuals(cloudData.manuals || []);
+          setNotes(cloudData.notes || []);
+          
+          localStorage.setItem('tlk_username', cloudData.userName);
+          localStorage.setItem('tlk_planning_completed_date', cloudData.planningCompletedDate);
+          localStorage.setItem('tlk_reflection_completed_date', cloudData.reflectionCompletedDate);
+          localStorage.setItem('tlk_todos', JSON.stringify(cloudData.todoItems || []));
+          localStorage.setItem('tlk_habits', JSON.stringify(cloudData.habits || []));
+          localStorage.setItem('tlk_cult_state', JSON.stringify(cloudData.cultState));
+          localStorage.setItem('tlk_daily_logs', JSON.stringify(cloudData.dailyLogs || []));
+          localStorage.setItem('tlk_ielts_logs', JSON.stringify(cloudData.ieltsLogs || []));
+          localStorage.setItem('tlk_ielts_targets', JSON.stringify(cloudData.ieltsTargets));
+          localStorage.setItem('tlk_cam_books_list', JSON.stringify(cloudData.camBooksList || []));
+          localStorage.setItem('tlk_manuals', JSON.stringify(cloudData.manuals || []));
+          localStorage.setItem('tlk_forbidden_notes', JSON.stringify(cloudData.notes || []));
+          
+          alert('✨ Đồng bộ đạo quả thành công!');
+        }
+      } else {
+        // Initial upload of current local state
+        const localData = {
+          userName,
+          planningCompletedDate,
+          reflectionCompletedDate,
+          todoItems,
+          tasks: [],
+          habits,
+          challenges,
+          cultState,
+          dailyLogs,
+          ieltsLogs,
+          ieltsTargets,
+          camBooksList,
+          manuals,
+          notes,
+        };
+        await saveUserDataToCloud(user.uid, localData);
+      }
+    } catch (error) {
+      console.error('Error loading user data from cloud:', error);
+    } finally {
+      setIsCloudSyncing(false);
+    }
+  };
+
+  useEffect(() => {
+    const unsubscribe = initAuth(
+      async (user, _token) => {
+        await handleAuthSuccess(user);
+      },
+      () => {
+        setCurrentUser(null);
+      }
+    );
+    return () => unsubscribe();
+  }, []);
+
+  // Debounced auto-sync to cloud when states change
+  useEffect(() => {
+    if (!currentUser) return;
+    
+    const timeoutId = setTimeout(async () => {
+      try {
+        const dataToSave = {
+          userName,
+          planningCompletedDate,
+          reflectionCompletedDate,
+          todoItems,
+          tasks: [],
+          habits,
+          challenges,
+          cultState,
+          dailyLogs,
+          ieltsLogs,
+          ieltsTargets,
+          camBooksList,
+          manuals,
+          notes,
+        };
+        await saveUserDataToCloud(currentUser.uid, dataToSave);
+        console.log('☁️ Auto-synced data to Firebase Firestore');
+      } catch (e) {
+        console.error('Auto-sync failed:', e);
+      }
+    }, 3000);
+    
+    return () => clearTimeout(timeoutId);
+  }, [
+    currentUser,
+    userName,
+    planningCompletedDate,
+    reflectionCompletedDate,
+    todoItems,
+    habits,
+    challenges,
+    cultState,
+    dailyLogs,
+    ieltsLogs,
+    ieltsTargets,
+    camBooksList,
+    manuals,
+    notes,
+  ]);
 
   // --- CULTIVATION CORE ACTIONS ---
 
@@ -1232,6 +1386,68 @@ export default function App() {
                     />
                   </label>
                 </div>
+
+                {/* Google Sign-in / Cloud Status Profile Widget */}
+                {currentUser ? (
+                  <div className="flex items-center gap-2 bg-slate-950 border border-slate-900/60 p-1.5 rounded-lg text-[10px] font-sans">
+                    {/* User Google Avatar */}
+                    {currentUser.photoURL ? (
+                      <img 
+                        src={currentUser.photoURL} 
+                        alt={currentUser.displayName || 'Avatar'} 
+                        className="w-4 h-4 rounded-full border border-amber-500/50" 
+                        referrerPolicy="no-referrer"
+                      />
+                    ) : (
+                      <div className="w-4 h-4 rounded-full bg-amber-500 text-slate-950 font-black text-[9px] flex items-center justify-center">
+                        {(currentUser.displayName || 'Đ').charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                    
+                    {/* User display name & Cloud Sync indicator */}
+                    <div className="flex flex-col text-left max-w-28 shrink-0">
+                      <span className="font-bold text-slate-200 truncate">{currentUser.displayName || 'Đạo Hữu'}</span>
+                      <span className="text-[7.5px] text-emerald-400 font-mono flex items-center gap-0.5 leading-none">
+                        {isCloudSyncing ? (
+                          <span className="w-1.5 h-1.5 rounded-full border border-t-transparent border-emerald-400 animate-spin" />
+                        ) : (
+                          <Cloud className="w-2 h-2 animate-pulse" />
+                        )}
+                        Đám Mây
+                      </span>
+                    </div>
+
+                    {/* Logout button */}
+                    <button
+                      onClick={async () => {
+                        if (confirm('Đạo hữu có chắc chắn muốn đăng xuất và ngắt kết nối với đám mây?')) {
+                          await firebaseLogout();
+                          alert('Đã đăng xuất thành công.');
+                        }
+                      }}
+                      className="ml-1 bg-rose-950/40 hover:bg-rose-900 border border-rose-900/40 text-rose-400 px-2 py-0.5 rounded text-[8px] font-bold uppercase transition-colors cursor-pointer"
+                    >
+                      Đăng xuất
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={async () => {
+                      try {
+                        const result = await googleSignIn();
+                        if (result) {
+                          await handleAuthSuccess(result.user);
+                        }
+                      } catch (e) {
+                        alert('Đăng nhập Google thất bại. Đạo hữu vui lòng kiểm tra cấu hình domain hoặc thử lại.');
+                      }
+                    }}
+                    className="flex items-center gap-1 px-3 py-1.5 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-slate-950 font-extrabold text-[9px] rounded-lg uppercase tracking-wider transition-all cursor-pointer shadow-md shadow-amber-950/20"
+                  >
+                    <LogIn className="w-3.5 h-3.5 stroke-[2.5]" />
+                    Đăng Nhập Google
+                  </button>
+                )}
               </div>
             </header>
 
@@ -1474,7 +1690,7 @@ export default function App() {
               </div>
 
               <div className={activeTab !== 'CAM_DIA' ? 'hidden' : ''}>
-                <ForbiddenNotes />
+                <ForbiddenNotes notes={notes} onUpdateNotes={setNotes} />
               </div>
 
               <div className={activeTab !== 'IELTS_ARENA' ? 'hidden' : ''}>

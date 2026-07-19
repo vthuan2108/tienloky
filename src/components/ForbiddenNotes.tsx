@@ -30,29 +30,19 @@ const COLOR_THEMES = [
   { id: 'purple', name: 'Tiên Bản', bg: 'bg-purple-950/20 border-purple-900/40 text-purple-200/90 hover:border-purple-800/60', activeBg: 'bg-purple-950/60', iconColor: 'text-purple-400' },
 ] as const;
 
-export default function ForbiddenNotes() {
-  const [notes, setNotes] = useState<CultivationNote[]>(() => {
-    const saved = localStorage.getItem('tlk_forbidden_notes');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        return [];
-      }
+interface ForbiddenNotesProps {
+  notes: CultivationNote[];
+  onUpdateNotes: (updatedNotes: CultivationNote[]) => void;
+}
+
+export default function ForbiddenNotes({ notes, onUpdateNotes }: ForbiddenNotesProps) {
+  const setNotes = (newNotesOrFunc: CultivationNote[] | ((prev: CultivationNote[]) => CultivationNote[])) => {
+    if (typeof newNotesOrFunc === 'function') {
+      onUpdateNotes(newNotesOrFunc(notes));
+    } else {
+      onUpdateNotes(newNotesOrFunc);
     }
-    // Default welcome note
-    return [
-      {
-        id: 'welcome_note_1',
-        title: 'Bí Kíp Tu Tiên Vô Song',
-        content: 'Chào mừng Đạo hữu đến với Cấm Địa Tông Môn. Nơi đây dùng để lưu trữ các mật thư, công pháp và bí kíp tu luyện riêng tư.\n\n- Ấn nút ghim để Trấn điện mật thư lên đầu trang.\n- Thay đổi linh lực màu sắc của mật tịch theo các phẩm cấp.\n- Tìm kiếm dễ dàng bằng Thần Nhãn Tìm Kiếm.\n- Nhấp trực tiếp vào mật tịch để tinh sửa.',
-        isPinned: true,
-        color: 'indigo',
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      }
-    ];
-  });
+  };
 
   const [searchQuery, setSearchQuery] = useState('');
   const [isCreating, setIsCreating] = useState(false);
@@ -73,11 +63,6 @@ export default function ForbiddenNotes() {
   const [showEditColorPicker, setShowEditColorPicker] = useState(false);
 
   const createRef = useRef<HTMLFormElement>(null);
-
-  // Save notes to localStorage
-  useEffect(() => {
-    localStorage.setItem('tlk_forbidden_notes', JSON.stringify(notes));
-  }, [notes]);
 
   // Click outside listener to close note creation (Google Keep style)
   useEffect(() => {

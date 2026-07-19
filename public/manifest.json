@@ -1,0 +1,30 @@
+{
+  "short_name": "Tiên Lộ Ký",
+  "name": "Tiên Lộ Ký - Cultivation & Productivity",
+  "description": "Ứng dụng quản lý thời gian bế quan tu luyện Pomodoro và học tập.",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any"
+    },
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "192x192",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "512x512",
+      "purpose": "maskable"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#070a0f",
+  "theme_color": "#070a0f",
+  "display": "standalone",
+  "orientation": "portrait"
+}

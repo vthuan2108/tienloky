@@ -182,7 +182,7 @@ export default function DailyRituals({
         return prev.filter(x => x !== id);
       } else {
         if (prev.length >= 3) {
-          alert('⚠️ Chỉ có thể định vị tối đa 3 đại nguyện trọng tâm (Đạo Tâm Ưu Tiên) mỗi ngày!');
+          alert('⚠️ Chỉ có thể định vị tối đa 3 nhiệm vụ trọng tâm (Đạo Tâm Ưu Tiên) mỗi ngày!');
           return prev;
         }
         return [...prev, id];
@@ -461,9 +461,9 @@ export default function DailyRituals({
                         <div className="flex gap-2">
                           <AlertCircle className="w-5 h-5 text-amber-500 shrink-0" />
                           <div>
-                            <h4 className="text-xs font-bold text-slate-100">Kiểm Điểm Đại Nguyện Quá Hạn</h4>
+                            <h4 className="text-xs font-bold text-slate-100">Kiểm Điểm Nhiệm Vụ Quá Hạn</h4>
                             <p className="text-[9.5px] text-slate-500 font-sans mt-0.5">
-                              Linh khí ghi nhận những đại nguyện của quá khứ chưa được đắp đan điền. Hãy dời lịch sang ngày lập nghi thức hoặc dọn dẹp để nhẹ gánh đạo tâm!
+                              Linh khí ghi nhận những nhiệm vụ của quá khứ chưa được đáp đan điền. Hãy dời lịch sang ngày lập nghi thức hoặc dọn dẹp để nhẹ gánh đạo tâm!
                             </p>
                           </div>
                         </div>
@@ -624,7 +624,7 @@ export default function DailyRituals({
                           <div className="text-center py-10 bg-slate-950/20 border border-slate-900 border-dashed rounded-xl">
                             <AlertCircle className="w-6 h-6 text-slate-700 mx-auto mb-1.5" />
                             <p className="text-[10px] text-slate-400 font-bold">Lịch trình trống</p>
-                            <p className="text-[8.5px] text-slate-600 font-sans mt-0.5">Ngày {ritualDate} không có đại nguyện nào trong danh sách. Hãy thêm việc ở tab Đại Nguyện trước nhé!</p>
+                            <p className="text-[8.5px] text-slate-600 font-sans mt-0.5">Ngày {ritualDate} không có nhiệm vụ nào trong danh sách. Hãy thêm việc ở tab Nhiệm Vụ Tông Môn trước nhé!</p>
                           </div>
                         )}
                       </div>
@@ -637,7 +637,7 @@ export default function DailyRituals({
                           <div>
                             <h4 className="text-xs font-bold text-slate-100">Định Thì Khung Giờ (Estimated Duration)</h4>
                             <p className="text-[9.5px] text-slate-500 font-sans mt-0.5">
-                              Dự tính thời lượng cần bế quan thiền định cho các đại nguyện trọng tâm ngày {ritualDate === todayStr ? 'hôm nay' : ritualDate}.
+                              Dự tính thời lượng cần bế quan thiền định cho các nhiệm vụ trọng tâm ngày {ritualDate === todayStr ? 'hôm nay' : ritualDate}.
                             </p>
                           </div>
                         </div>
@@ -746,7 +746,7 @@ export default function DailyRituals({
                             <p className="text-[7.5px] text-slate-600">phút tập trung</p>
                           </div>
                           <div className="bg-slate-950/60 border border-slate-900 p-4 rounded-xl text-center space-y-1">
-                            <p className="text-[8px] text-slate-500 uppercase tracking-wider font-semibold">Đại Nguyện Thành</p>
+                            <p className="text-[8px] text-slate-500 uppercase tracking-wider font-semibold">Nhiệm Vụ Thành</p>
                             <h5 className="text-lg font-black text-emerald-400 font-mono">{targetCompletedTasks}</h5>
                             <p className="text-[7.5px] text-slate-600">nhiệm vụ check</p>
                           </div>
@@ -814,7 +814,7 @@ export default function DailyRituals({
                           <div>
                             <h4 className="text-xs font-bold text-slate-100">Giải Quyết Nhiệm Vụ Chưa Thành</h4>
                             <p className="text-[9.5px] text-slate-500 font-sans mt-0.5">
-                              Những đại nguyện ngày {ritualDate === todayStr ? 'hôm nay' : ritualDate} chưa được hoàn thành. Đạo hữu muốn giải quyết chúng như thế nào? Dời ngày để tiếp tục thực hiện?
+                              Những nhiệm vụ ngày {ritualDate === todayStr ? 'hôm nay' : ritualDate} chưa được hoàn thành. Đạo hữu muốn giải quyết chúng như thế nào? Dời ngày để tiếp tục thực hiện?
                             </p>
                           </div>
                         </div>

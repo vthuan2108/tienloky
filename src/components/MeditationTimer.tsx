@@ -5,14 +5,21 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { CultivationState } from '../types';
-import { Play, Pause, RotateCcw, Timer, Volume2, VolumeX, Eye } from 'lucide-react';
+import { Play, Pause, RotateCcw, Volume2, VolumeX, Eye } from 'lucide-react';
 import { motion } from 'motion/react';
+import { SPIRITUAL_SEEDS } from '../data';
 
 export type SoundscapeType = 'NONE' | 'ZEN' | 'RAIN' | 'STREAM' | 'CHIMES' | 'THUNDER' | 'CAMPFIRE';
 
 interface MeditationTimerProps {
   state: CultivationState;
-  onMeditationComplete: (minutes: number) => void;
+  onMeditationComplete: (
+    minutes: number,
+    xpGained?: number,
+    linhThachGained?: number,
+    plantName?: string,
+    plantStatus?: 'HARVESTED' | 'WITHERED'
+  ) => void;
   onPassiveQiTick: (tuViGained: number) => void;
   isFocusMode: boolean;
   onToggleFocusMode: () => void;
@@ -417,14 +424,32 @@ export default function MeditationTimer({
   const [isRunning, setIsRunning] = useState(false);
   const [quoteIndex, setQuoteIndex] = useState(0);
   const [soundEnabled, setSoundEnabled] = useState(true);
+  const [selectedSeedId, setSelectedSeedId] = useState<string>(() => {
+    return localStorage.getItem('tlk_selected_seed_id') || 'ngoc_linh_chi';
+  });
+
+  const [completedCycles, setCompletedCycles] = useState<number>(() => {
+    return Number(localStorage.getItem('tlk_completed_cycles') || '0');
+  });
+
+  useEffect(() => {
+    localStorage.setItem('tlk_selected_seed_id', selectedSeedId);
+  }, [selectedSeedId]);
+
+  useEffect(() => {
+    localStorage.setItem('tlk_completed_cycles', completedCycles.toString());
+  }, [completedCycles]);
+
   const [soundscape, setSoundscape] = useState<SoundscapeType>(() => {
     return (localStorage.getItem('tlk_soundscape') as SoundscapeType) || 'NONE';
   });
-
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const passiveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const soundscapePlayerRef = useRef<{ stop: () => void } | null>(null);
+  const tickStartRef = useRef<number>(Date.now());
+  const rafRef = useRef<number>(0);
+  const [smoothProgress, setSmoothProgress] = useState(0);
 
   const getAudioContext = (): AudioContext | null => {
     if (typeof window === 'undefined') return null;
@@ -440,6 +465,29 @@ export default function MeditationTimer({
   useEffect(() => {
     localStorage.setItem('tlk_soundscape', soundscape);
   }, [soundscape]);
+
+  // 60fps smooth progress animation
+  const maxTimeDep = (() => {
+    if (mode === 'FOCUS') return 25 * 60;
+    if (mode === 'SHORT_BREAK') return 5 * 60;
+    return 15 * 60;
+  })();
+
+  useEffect(() => {
+    const animate = () => {
+      if (isRunning) {
+        const msSinceTick = Date.now() - tickStartRef.current;
+        const elapsedSecs = (maxTimeDep - timeLeft) + Math.min(msSinceTick / 1000, 0.999);
+        setSmoothProgress(Math.min(elapsedSecs / maxTimeDep, 1));
+      } else {
+        setSmoothProgress((maxTimeDep - timeLeft) / maxTimeDep);
+      }
+      rafRef.current = requestAnimationFrame(animate);
+    };
+    rafRef.current = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [isRunning, timeLeft, maxTimeDep]);
+
 
   useEffect(() => {
     if (isRunning && soundscape !== 'NONE') {
@@ -528,18 +576,44 @@ export default function MeditationTimer({
     }
   };
 
-  const getModeDuration = (m: typeof mode) => {
-    if (m === 'FOCUS') return 25 * 60;
-    if (m === 'SHORT_BREAK') return 5 * 60;
-    return 15 * 60;
+  const selectedSeed = SPIRITUAL_SEEDS.find(s => s.id === selectedSeedId) || SPIRITUAL_SEEDS[0];
+
+  const getRequiredCycles = (rarity: string) => {
+    if (rarity === 'SO_CAP') return 1;
+    if (rarity === 'TRUNG_CAP') return 2;
+    if (rarity === 'CAO_CAP') return 3;
+    return 4; // THAN_CAP
   };
 
+  const getModeDuration = (m: typeof mode) => {
+    if (m === 'FOCUS') return 25 * 60; // Always 25 minutes for all seeds
+    if (m === 'SHORT_BREAK') return 5 * 60;
+    return 15 * 60; // LONG_BREAK
+  };
+
+  const isSeedUnlocked = (seedId: string): boolean => {
+    const level = state.level;
+    if (seedId === 'ngo_dao_tra' || seedId === 'phuong_hoang_hoa') return level >= 10;
+    if (seedId === 'tuyet_lien' || seedId === 'hoa_long_qua') return level >= 19;
+    if (seedId === 'ngu_sac_linh_truc' || seedId === 'hon_don_dao_qua') return level >= 28;
+    return true;
+  };
+
+  const getSeedRewards = (rarity: string) => {
+    if (rarity === 'SO_CAP') return { xp: 50, coins: 50 };
+    if (rarity === 'TRUNG_CAP') return { xp: 100, coins: 100 }; // doubled
+    if (rarity === 'CAO_CAP') return { xp: 200, coins: 200 }; // doubled
+    return { xp: 400, coins: 400 }; // doubled (THAN_CAP)
+  };
+
+  const seedRewards = getSeedRewards(selectedSeed.rarity);
   const gatheringPill = state.inventory.find(i => i.itemId === 'tu_khi_dan');
   const pillBonusMultiplier = gatheringPill ? 0.25 : 0;
-  const baselineExp = 50;
-  const actualExpGained = Math.round(baselineExp * (1 + pillBonusMultiplier));
+  const actualExpGained = Math.round(seedRewards.xp * (1 + pillBonusMultiplier));
+  const actualCoinsGained = seedRewards.coins;
 
   const handleModeChange = (newMode: typeof mode) => {
+    if (newMode === mode) return;
     setIsRunning(false);
     setMode(newMode);
     setTimeLeft(getModeDuration(newMode));
@@ -558,40 +632,58 @@ export default function MeditationTimer({
   // Main countdown logic
   useEffect(() => {
     if (isRunning) {
-      // Request notification permission if not asked yet
       if ('Notification' in window && Notification.permission === 'default') {
         Notification.requestPermission();
       }
 
+      tickStartRef.current = Date.now();
       timerRef.current = setInterval(() => {
+        tickStartRef.current = Date.now();
         setTimeLeft(prev => {
           if (prev <= 1) {
             clearInterval(timerRef.current!);
             setIsRunning(false);
             playCompletionSound();
             
-            // Trigger desktop notification
-            if ('Notification' in window && Notification.permission === 'granted') {
-              if (mode === 'FOCUS') {
-                new Notification('🧘 Cảnh Giới Bế Quan Viên Mãn!', {
-                  body: `Chúc mừng đạo hữu bế quan hoàn thành! Nhận ngay +${actualExpGained} Tu Vi và +50 Linh Thạch.`,
-                  icon: '/icon.png' // Or generic placeholder
-                });
-                onMeditationComplete(25);
+            if (mode === 'FOCUS') {
+              const reqCycles = getRequiredCycles(selectedSeed.rarity);
+              const nextCycles = completedCycles + 1;
+
+              if (nextCycles >= reqCycles) {
+                // Fully grown and harvested!
+                if ('Notification' in window && Notification.permission === 'granted') {
+                  new Notification('🧘 Cảnh Giới Bế Quan Viên Mãn!', {
+                    body: `Chúc mừng đạo hữu! Thu hoạch thành công [${selectedSeed.name}]. Nhận ngay +${actualExpGained} Tu Vi và +${actualCoinsGained} Linh Thạch.`,
+                    icon: '/icon.png'
+                  });
+                }
+                const sessionMins = 25 * reqCycles;
+                onMeditationComplete(sessionMins, actualExpGained, actualCoinsGained, selectedSeed.name, 'HARVESTED');
+                setCompletedCycles(0);
+                setMode('SHORT_BREAK');
+                setTimeLeft(5 * 60);
               } else {
+                // Multi-session cycle completed but not yet harvested
+                if ('Notification' in window && Notification.permission === 'granted') {
+                  new Notification('🌱 Chu Kỳ Bế Quan Hoàn Thành!', {
+                    body: `Đạo hữu đã hoàn thành chu kỳ ${nextCycles}/${reqCycles} để nuôi trồng [${selectedSeed.name}]. Hãy nghỉ ngơi trước khi bắt đầu chu kỳ tiếp theo!`,
+                    icon: '/icon.png'
+                  });
+                }
+                setCompletedCycles(nextCycles);
+                setMode('SHORT_BREAK');
+                setTimeLeft(5 * 60);
+              }
+            } else {
+              if ('Notification' in window && Notification.permission === 'granted') {
                 new Notification('⚡ Thời Gian Thần Tức Kết Thúc!', {
                   body: 'Tinh thần đạo hữu đã sảng khoái, hãy chuẩn bị quay lại bế quan tu luyện!',
                   icon: '/icon.png'
                 });
               }
-            } else {
-              // Fallback alert if permission is not granted
-              if (mode === 'FOCUS') {
-                onMeditationComplete(25);
-              }
+              setMode('FOCUS');
+              setTimeLeft(25 * 60);
             }
-            
-            setTimeLeft(getModeDuration(mode));
             return 0;
           }
           return prev - 1;
@@ -604,7 +696,7 @@ export default function MeditationTimer({
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [isRunning, mode, actualExpGained]);
+  }, [isRunning, mode, actualExpGained, actualCoinsGained, selectedSeed, completedCycles]);
 
   // Passive Qi Ticks (Exp gain)
   const hasQiArray = state.inventory.some(i => i.itemId === 'tu_linh_tran');
@@ -627,8 +719,19 @@ export default function MeditationTimer({
   };
 
   const resetTimer = () => {
-    setIsRunning(false);
-    setTimeLeft(getModeDuration(mode));
+    if (isRunning && mode === 'FOCUS') {
+      if (confirm(`☠️ ĐẠO TÂM LUNG LAY?\n\nNếu tự ý phá trận pháp bế quan lúc này, Linh Thảo [${selectedSeed.name}] đang gieo trồng sẽ bị héo úa (chết).\nĐạo hữu có chắc chắn muốn hủy bỏ?`)) {
+        clearInterval(timerRef.current!);
+        if (passiveTimerRef.current) clearInterval(passiveTimerRef.current);
+        setIsRunning(false);
+        setCompletedCycles(0); // reset progress entirely
+        onMeditationComplete(0, 0, 0, selectedSeed.name, 'WITHERED');
+        setTimeLeft(getModeDuration(mode));
+      }
+    } else {
+      setIsRunning(false);
+      setTimeLeft(getModeDuration(mode));
+    }
   };
 
   const formatTime = (secs: number) => {
@@ -637,247 +740,312 @@ export default function MeditationTimer({
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
-  const maxTime = getModeDuration(mode);
+  // Cycle seed left/right
+  const unlockedSeeds = SPIRITUAL_SEEDS.filter(s => isSeedUnlocked(s.id));
+  const currentSeedIdxInUnlocked = unlockedSeeds.findIndex(s => s.id === selectedSeedId);
 
+  const handlePrevSeed = () => {
+    if (unlockedSeeds.length === 0) return;
+    const newIdx = (currentSeedIdxInUnlocked - 1 + unlockedSeeds.length) % unlockedSeeds.length;
+    const newSeed = unlockedSeeds[newIdx];
+    setSelectedSeedId(newSeed.id);
+    setCompletedCycles(0); // reset progress on cycle change
+    if (!isRunning && mode === 'FOCUS') {
+      setTimeLeft(25 * 60);
+    }
+  };
+
+  const handleNextSeed = () => {
+    if (unlockedSeeds.length === 0) return;
+    const newIdx = (currentSeedIdxInUnlocked + 1) % unlockedSeeds.length;
+    const newSeed = unlockedSeeds[newIdx];
+    setSelectedSeedId(newSeed.id);
+    setCompletedCycles(0); // reset progress on cycle change
+    if (!isRunning && mode === 'FOCUS') {
+      setTimeLeft(25 * 60);
+    }
+  };
+
+  // Always show the selected seed icon when focus timer is active
+  const plantStageEmoji = selectedSeed.icon || '🌿';
 
   return (
-    <div className="bg-[#0f141c] border border-slate-800/80 rounded-2xl p-6 shadow-xl flex flex-col items-center relative" id="meditation-timer">
-      <div className="absolute top-4 right-4 flex items-center gap-1.5">
-        {/* Toggle Sound */}
-        <button
-          onClick={() => setSoundEnabled(!soundEnabled)}
-          className="p-1.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200 cursor-pointer"
-          title={soundEnabled ? 'Tắt Tiếng Chuông Cảnh Tỉnh' : 'Bật Tiếng Chuông Cảnh Tỉnh'}
-          id="toggle-sound-btn"
-        >
-          {soundEnabled ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
-        </button>
+    <div className="bg-[#0f141c] border border-slate-800/80 rounded-2xl shadow-xl flex flex-col items-center relative overflow-hidden" id="meditation-timer">
 
-        {/* Enter Focus Mode Button */}
-        <button
-          onClick={onToggleFocusMode}
-          className={`p-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-all ${
-            isFocusMode
-              ? 'bg-amber-950/40 text-amber-400 border-amber-900'
-              : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-amber-400'
-          }`}
-          title="Kích hoạt cảnh giới bế quan tập trung (Focus Mode)"
-          id="focus-mode-toggle-btn"
-        >
-          <Eye className="w-3.5 h-3.5" />
-          <span className="hidden sm:inline">{isFocusMode ? 'Thoát Bế Quan' : 'Cảnh Giới Focus'}</span>
-        </button>
+      {/* Top bar */}
+      <div className="w-full flex items-center justify-between px-4 pt-4 pb-2">
+        {/* Mode Tabs */}
+        <div className="flex gap-1 p-0.5 bg-slate-950/80 border border-slate-900 rounded-lg">
+          <button
+            onClick={() => handleModeChange('FOCUS')}
+            className={`px-2 py-1 rounded-md text-[9px] font-bold transition-all cursor-pointer ${
+              mode === 'FOCUS'
+                ? 'bg-emerald-950/80 border border-emerald-800/80 text-emerald-400'
+                : 'text-slate-500 hover:text-slate-300'
+            }`}
+          >
+            Bế Quan
+          </button>
+          <button
+            onClick={() => handleModeChange('SHORT_BREAK')}
+            className={`px-2 py-1 rounded-md text-[9px] font-bold transition-all cursor-pointer ${
+              mode === 'SHORT_BREAK'
+                ? 'bg-blue-950/80 border border-blue-800/80 text-blue-400'
+                : 'text-slate-500 hover:text-slate-300'
+            }`}
+          >
+            Tiểu Đốn
+          </button>
+          <button
+            onClick={() => handleModeChange('LONG_BREAK')}
+            className={`px-2 py-1 rounded-md text-[9px] font-bold transition-all cursor-pointer ${
+              mode === 'LONG_BREAK'
+                ? 'bg-indigo-950/80 border border-indigo-800/80 text-indigo-400'
+                : 'text-slate-500 hover:text-slate-300'
+            }`}
+          >
+            Đại Đốn
+          </button>
+        </div>
+
+        {/* Right controls */}
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => setSoundEnabled(!soundEnabled)}
+            className="p-1.5 rounded-lg bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200 cursor-pointer"
+            title={soundEnabled ? 'Tắt tiếng' : 'Bật tiếng'}
+          >
+            {soundEnabled ? <Volume2 className="w-3 h-3" /> : <VolumeX className="w-3 h-3" />}
+          </button>
+          <button
+            onClick={onToggleFocusMode}
+            className={`p-1.5 rounded-lg border cursor-pointer transition-all ${
+              isFocusMode
+                ? 'bg-amber-950/40 text-amber-400 border-amber-900'
+                : 'bg-slate-900 text-slate-400 border-slate-800 hover:text-amber-400'
+            }`}
+            title="Cảnh giới Focus"
+          >
+            <Eye className="w-3 h-3" />
+          </button>
+        </div>
       </div>
 
-      <div className="flex gap-2 p-1 bg-slate-950/80 border border-slate-900 rounded-lg mb-6 mt-2">
-        <button
-          onClick={() => handleModeChange('FOCUS')}
-          className={`px-3 py-1.5 rounded-md text-[10px] font-semibold transition-all cursor-pointer ${
-            mode === 'FOCUS'
-              ? 'bg-emerald-950/80 border border-emerald-800/80 text-emerald-400'
-              : 'text-slate-400 hover:text-slate-300'
-          }`}
-        >
-          Bế Quan Nhập Định
-        </button>
-        <button
-          onClick={() => handleModeChange('SHORT_BREAK')}
-          className={`px-3 py-1.5 rounded-md text-[10px] font-semibold transition-all cursor-pointer ${
-            mode === 'SHORT_BREAK'
-              ? 'bg-blue-950/80 border border-blue-800/80 text-blue-400'
-              : 'text-slate-400 hover:text-slate-300'
-          }`}
-        >
-          Tiểu Đốn (Break)
-        </button>
-        <button
-          onClick={() => handleModeChange('LONG_BREAK')}
-          className={`px-3 py-1.5 rounded-md text-[10px] font-semibold transition-all cursor-pointer ${
-            mode === 'LONG_BREAK'
-              ? 'bg-indigo-950/80 border border-indigo-800/80 text-indigo-400'
-              : 'text-slate-400 hover:text-slate-300'
-          }`}
-        >
-          Đại Đốn (Long Break)
-        </button>
-      </div>
+      {/* ─── MAIN FOREST-STYLE DISPLAY ─── */}
+      <div className="flex flex-col items-center px-6 pb-4 w-full">
 
-      {/* Main Timer Display Circle */}
-      <div className="relative w-48 h-48 flex items-center justify-center mb-6">
-        {isRunning && (
-          <div className={`absolute inset-0 rounded-full blur-xl opacity-20 animate-pulse ${
-            mode === 'FOCUS' ? 'bg-emerald-500' : 'bg-blue-500'
-          }`} />
-        )}
+        {/* Large circular timer with plant inside */}
+        <div className="relative flex items-center justify-center my-4">
+          {/* Outer SVG ring */}
+          <svg width="220" height="220" className="-rotate-90">
+            <defs>
+              <linearGradient id="focusGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stopColor="#86efac" />
+                <stop offset="100%" stopColor="#059669" />
+              </linearGradient>
+              <linearGradient id="breakGrad" x1="0%" y1="0%" x2="100%\" y2="100%">
+                <stop offset="0%" stopColor="#bfdbfe" />
+                <stop offset="100%" stopColor="#2563eb" />
+              </linearGradient>
+              <style>{`
+                @keyframes pulse-ring {
+                  0%, 100% { filter: drop-shadow(0 0 4px #10b981); }
+                  50% { filter: drop-shadow(0 0 14px #10b981) drop-shadow(0 0 24px #10b981); }
+                }
+                @keyframes pulse-ring-break {
+                  0%, 100% { filter: drop-shadow(0 0 4px #3b82f6); }
+                  50% { filter: drop-shadow(0 0 14px #3b82f6) drop-shadow(0 0 24px #3b82f6); }
+                }
+              `}</style>
+            </defs>
 
-        {/* Ambient active visual theme */}
-        {isRunning && (
-          <div className="absolute inset-0 rounded-full overflow-hidden pointer-events-none z-0">
-            {soundscape === 'RAIN' && (
-              <div className="absolute inset-0 bg-transparent opacity-40">
-                <div className="absolute w-full h-[300%] bg-[linear-gradient(to_bottom,rgba(148,163,184,0)_0%,rgba(148,163,184,0.15)_50%,rgba(148,163,184,0)_100%)]" style={{ backgroundSize: '100% 40px', animation: 'rain-fall 1.2s linear infinite' }} />
-                <div className="absolute w-full h-[300%] bg-[linear-gradient(to_bottom,rgba(148,163,184,0)_0%,rgba(148,163,184,0.2)_50%,rgba(148,163,184,0)_100%)]" style={{ backgroundSize: '100% 60px', left: '10px', animation: 'rain-fall 0.8s linear infinite 0.4s' }} />
+            {/* Background track (remaining portion — dim) */}
+            <circle
+              cx="110" cy="110" r="96"
+              fill="none"
+              stroke="#1f2937"
+              strokeWidth="9"
+            />
+
+            {/* Elapsed progress arc — fills clockwise, smooth 60fps */}
+            <circle
+              cx="110" cy="110" r="96"
+              fill="none"
+              stroke={mode === 'FOCUS' ? 'url(#focusGrad)' : 'url(#breakGrad)'}
+              strokeWidth="9"
+              strokeLinecap="round"
+              strokeDasharray={`${2 * Math.PI * 96}`}
+              strokeDashoffset={2 * Math.PI * 96 * (1 - smoothProgress)}
+              style={{
+                animation: isRunning && smoothProgress > 0.85
+                  ? (mode === 'FOCUS' ? 'pulse-ring 1.4s ease-in-out infinite' : 'pulse-ring-break 1.4s ease-in-out infinite')
+                  : undefined,
+              }}
+            />
+
+          </svg>
+
+          {/* Inner circle content */}
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            {/* Inner cream-colored circle (like Forest app) */}
+            <div
+              className="w-44 h-44 rounded-full flex flex-col items-center justify-end pb-4 relative overflow-hidden"
+              style={{ background: 'radial-gradient(circle, #1a2a1f 0%, #0d1a11 100%)' }}
+            >
+              {mode === 'FOCUS' && (
+                <div className="absolute top-4 text-[9px] font-bold px-2 py-0.5 rounded-full bg-emerald-950/80 border border-emerald-800/60 text-emerald-400 z-10 select-none">
+                  Chu kỳ: {completedCycles}/{getRequiredCycles(selectedSeed.rarity)}
+                </div>
+              )}
+              {/* Dirt mound half-circle at bottom */}
+              <div
+                className="absolute bottom-0 left-1/2 -translate-x-1/2 w-32 h-14 rounded-t-full"
+                style={{ background: 'linear-gradient(to top, #5c3317, #7a4520)' }}
+              />
+
+              {/* Plant growing from dirt */}
+              <div className="absolute bottom-6 flex items-end justify-center w-full z-10">
+                {isRunning && mode === 'FOCUS' ? (
+                  <motion.span
+                    key={plantStageEmoji}
+                    initial={{ scale: 0.6, y: 10, opacity: 0 }}
+                    animate={{ scale: 1, y: 0, opacity: 1 }}
+                    transition={{ duration: 0.5, type: 'spring' }}
+                    className="select-none drop-shadow-lg"
+                    style={{ fontSize: `${2 + smoothProgress * 2}rem`, lineHeight: 1 }}
+                  >
+                    {plantStageEmoji}
+                  </motion.span>
+                ) : (
+                  <motion.span
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    className="select-none drop-shadow-lg"
+                    style={{ fontSize: '2.4rem', lineHeight: 1 }}
+                  >
+                    {selectedSeed.icon}
+                  </motion.span>
+                )}
               </div>
-            )}
-            {soundscape === 'THUNDER' && (
-              <div className="absolute inset-0 bg-transparent opacity-30">
-                <div className="absolute w-full h-[300%] bg-[linear-gradient(to_bottom,rgba(148,163,184,0)_0%,rgba(148,163,184,0.15)_50%,rgba(148,163,184,0)_100%)]" style={{ backgroundSize: '100% 40px', animation: 'rain-fall 1s linear infinite' }} />
-                <div className="absolute inset-0 bg-purple-500/10" style={{ animation: 'lightning-flash 8s ease-out infinite' }} />
-                <div className="absolute inset-0 bg-blue-500/10" style={{ animation: 'lightning-flash 12s ease-out infinite 3s' }} />
-              </div>
-            )}
-            {soundscape === 'STREAM' && (
-              <div className="absolute inset-0 flex items-center justify-center opacity-30">
-                <div className="absolute w-24 h-24 border border-cyan-500/30 rounded-full animate-ping" style={{ animationDuration: '4s' }} />
-                <div className="absolute w-32 h-32 border border-cyan-500/20 rounded-full animate-ping" style={{ animationDuration: '6s', animationDelay: '2s' }} />
-              </div>
-            )}
-            {soundscape === 'CAMPFIRE' && (
-              <div className="absolute inset-0 flex items-end justify-center opacity-30 pb-4">
-                <div className="w-1.5 h-1.5 rounded-full bg-amber-500 absolute" style={{ animation: 'campfire-ember 2s ease-out infinite', animationDelay: '0s', left: '35%', bottom: '20%' }} />
-                <div className="w-1 h-1 rounded-full bg-orange-500 absolute" style={{ animation: 'campfire-ember 1.5s ease-out infinite', animationDelay: '0.4s', left: '48%', bottom: '20%' }} />
-                <div className="w-2 h-2 rounded-full bg-red-500 absolute" style={{ animation: 'campfire-ember 2.5s ease-out infinite', animationDelay: '0.8s', left: '62%', bottom: '20%' }} />
-              </div>
-            )}
-            {soundscape === 'CHIMES' && (
-              <div className="absolute inset-0 flex items-center justify-center opacity-30">
-                <div className="absolute w-20 h-20 border border-amber-500/10 rounded-full animate-spin-slow" />
-                <div className="w-4 h-8 bg-amber-500/20 border border-amber-500/30 rounded-b-md" style={{ transformOrigin: 'top center', animation: 'chime-sway 3s ease-in-out infinite' }} />
-              </div>
-            )}
-            {soundscape === 'ZEN' && (
-              <div className="absolute inset-0 flex items-center justify-center opacity-25">
-                <div className="w-24 h-24 rounded-full border-2 border-emerald-500/20 bg-emerald-500/5 animate-ping" style={{ animationDuration: '6s' }} />
-              </div>
-            )}
+            </div>
+          </div>
+        </div>
+
+        {/* Seed name row with arrow navigation */}
+        {mode === 'FOCUS' && !isRunning && (
+          <div className="flex items-center gap-3 mb-3">
+            <button
+              onClick={handlePrevSeed}
+              className="w-7 h-7 rounded-full bg-slate-900 border border-slate-800 text-slate-400 hover:text-emerald-400 hover:border-emerald-800 transition-all cursor-pointer flex items-center justify-center text-xs font-bold"
+              title="Linh thảo trước"
+            >
+              ‹
+            </button>
+            <div className="text-center min-w-[120px]">
+              <p className="text-xs font-bold text-slate-200">{selectedSeed.icon} {selectedSeed.name}</p>
+              <p className="text-[9px] text-slate-500 font-mono">
+                {selectedSeed.rarity === 'SO_CAP' ? 'Sơ Cấp' :
+                 selectedSeed.rarity === 'TRUNG_CAP' ? 'Trung Cấp' :
+                 selectedSeed.rarity === 'CAO_CAP' ? 'Cao Cấp' : 'Thần Cấp'} •
+                +{seedRewards.xp} Tu Vi
+              </p>
+            </div>
+            <button
+              onClick={handleNextSeed}
+              className="w-7 h-7 rounded-full bg-slate-900 border border-slate-800 text-slate-400 hover:text-emerald-400 hover:border-emerald-800 transition-all cursor-pointer flex items-center justify-center text-xs font-bold"
+              title="Linh thảo tiếp theo"
+            >
+              ›
+            </button>
           </div>
         )}
 
-        <svg className="w-full h-full transform -rotate-90">
-          <circle
-            cx="96"
-            cy="96"
-            r="42"
-            className="stroke-slate-950 fill-transparent"
-            strokeWidth="6"
-          />
-          <motion.circle
-            cx="96"
-            cy="96"
-            r="42"
-            className={`fill-transparent ${
-              mode === 'FOCUS' ? 'stroke-emerald-500/80' : 'stroke-blue-500/80'
-            }`}
-            strokeWidth="6"
-            strokeDasharray="264"
-            strokeDashoffset={264 - ((maxTime - timeLeft) / maxTime) * 264}
-            strokeLinecap="round"
-          />
-        </svg>
+        {/* Timer digits */}
+        <div className="text-5xl font-black font-mono tracking-widest text-slate-100 mb-1">
+          {formatTime(timeLeft)}
+        </div>
 
-        <div className="absolute text-center flex flex-col items-center">
-          <span className="text-3xl font-extrabold font-mono tracking-wider text-slate-100">
-            {formatTime(timeLeft)}
-          </span>
-          <span className="text-[9px] font-mono mt-0.5 text-slate-400 flex items-center gap-1 uppercase tracking-wider">
-            {mode === 'FOCUS' ? (
+        {/* Quote or seed description */}
+        <div className="text-center px-3 mb-4 h-8 flex items-center justify-center">
+          <p className="text-[10px] text-slate-500 italic font-sans">
+            {isRunning
+              ? `"${SPIRITUAL_QUOTES[quoteIndex]}"`
+              : `"${selectedSeed.description}"`}
+          </p>
+        </div>
+
+        {/* Soundscape selector (compact) */}
+        <div className="w-full mb-4">
+          <select
+            value={soundscape}
+            onChange={(e) => {
+              const val = e.target.value as SoundscapeType;
+              setSoundscape(val);
+              getAudioContext();
+            }}
+            className="w-full bg-slate-950/80 border border-slate-900 rounded-xl px-3 py-1.5 text-[10px] text-slate-400 focus:outline-none focus:border-emerald-500/40 cursor-pointer font-bold transition-all hover:border-slate-800 text-center"
+          >
+            <option value="NONE">🔇 Tắt nhạc nền</option>
+            <option value="ZEN">🧘 Hợp Âm Thiền (Zen)</option>
+            <option value="RAIN">🌧️ Mưa Rơi Trúc Lâm</option>
+            <option value="STREAM">🌊 Linh Tuyền Thủy Lưu</option>
+            <option value="CHIMES">🎐 Đạo Quán Linh Chuông</option>
+            <option value="THUNDER">⚡ Lôi Kiếp Sấm Sét</option>
+            <option value="CAMPFIRE">🔥 Lửa Trại Dưỡng Thần</option>
+          </select>
+        </div>
+
+        {/* Main action button */}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={resetTimer}
+            className="p-2.5 rounded-full bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
+            title="Thiết lập lại"
+          >
+            <RotateCcw className="w-4 h-4" />
+          </button>
+
+          <button
+            onClick={toggleTimer}
+            className={`px-8 py-2.5 rounded-full font-black text-[11px] tracking-widest flex items-center gap-2 transition-all shadow-lg cursor-pointer ${
+              isRunning
+                ? 'bg-slate-200 text-slate-950 hover:bg-slate-300'
+                : mode === 'FOCUS'
+                ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 hover:from-emerald-600 hover:to-teal-600 shadow-emerald-500/20'
+                : 'bg-gradient-to-r from-blue-500 to-sky-400 text-slate-950 hover:from-blue-600 hover:to-sky-500'
+            }`}
+            id="toggle-timer-btn"
+          >
+            {isRunning ? (
               <>
-                <Timer className="w-3 h-3 text-emerald-400 animate-spin-slow" />
-                Tu Luyện
+                <Pause className="w-4 h-4 fill-current" />
+                TẠM DỪNG
+              </>
+            ) : mode === 'FOCUS' ? (
+              <>
+                <Play className="w-4 h-4 fill-current" />
+                GIEO TRỒNG
               </>
             ) : (
-              'Thần Tức'
+              <>
+                <Play className="w-4 h-4 fill-current" />
+                NGHỈ NGƠI
+              </>
             )}
-          </span>
+          </button>
         </div>
-      </div>
 
-      {/* Quote display */}
-      <div className="text-center px-4 mb-4 min-h-8 max-w-sm flex items-center justify-center select-none">
-        <p className="text-[11px] text-slate-400 italic font-medium leading-relaxed font-sans">
-          {isRunning ? `"${SPIRITUAL_QUOTES[quoteIndex]}"` : '"Độ đạo tâm vững chí, bế quan điều tức khí..."'}
-        </p>
-      </div>
-
-      {/* Tiên Nhạc Bồng Lai (Soundscape Selector) */}
-      <div className="w-full max-w-xs mb-5 text-center space-y-1.5 font-sans">
-        <label className="text-[9px] text-slate-500 uppercase tracking-widest font-extrabold block">
-          🎵 Tiên Nhạc Bồng Lai (Nhạc Nền Thiền)
-        </label>
-        <select
-          value={soundscape}
-          onChange={(e) => {
-            const val = e.target.value as SoundscapeType;
-            setSoundscape(val);
-            getAudioContext();
-          }}
-          className="w-full bg-slate-950/80 border border-slate-900 rounded-xl px-3 py-1.5 text-[10px] text-slate-300 focus:outline-none focus:border-emerald-500/50 cursor-pointer text-center font-bold transition-all hover:border-slate-800/80"
-        >
-          <option value="NONE">🔇 Tắt Tiên Nhạc (Tĩnh Tịch)</option>
-          <option value="ZEN">🧘 Tiên Linh Đại Trận (Hợp Âm Thiền)</option>
-          <option value="RAIN">🌧️ Mưa Rơi Trúc Lâm (Tiếng Mưa)</option>
-          <option value="STREAM">🌊 Linh Tuyền Thủy Lưu (Tiếng Suối)</option>
-          <option value="CHIMES">🎐 Đạo Quán Linh Chuông (Chuông Gió)</option>
-          <option value="THUNDER">⚡ Lôi Kiếp Sấm Sét (Mưa Giông & Sấm Sét)</option>
-          <option value="CAMPFIRE">🔥 Lửa Trại Dưỡng Thần (Tiếng Lửa Reo)</option>
-        </select>
-      </div>
-
-      {/* Controls */}
-      <div className="flex items-center gap-3">
-        <button
-          onClick={resetTimer}
-          className="p-2.5 rounded-full bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200 transition-colors cursor-pointer"
-          title="Thiết lập lại trận pháp"
-          id="reset-timer-btn"
-        >
-          <RotateCcw className="w-4 h-4" />
-        </button>
-
-        <button
-          onClick={toggleTimer}
-          className={`px-6 py-2.5 rounded-full font-bold text-[10px] tracking-wider flex items-center gap-2 transition-all shadow-lg cursor-pointer ${
-            isRunning
-              ? 'bg-slate-200 text-slate-950 hover:bg-slate-300'
-              : 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 hover:from-emerald-600 hover:to-teal-600'
-          }`}
-          id="toggle-timer-btn"
-        >
-          {isRunning ? (
-            <>
-              <Pause className="w-3.5 h-3.5 fill-current" />
-              TẠM DỪNG THIỀN
-            </>
-          ) : (
-            <>
-              <Play className="w-3.5 h-3.5 fill-current" />
-              BẾ QUAN TU LUYỆN
-            </>
-          )}
-        </button>
-      </div>
-
-      {/* Buff details footer */}
-      {mode === 'FOCUS' && (
-        <div className="mt-5 pt-3 border-t border-slate-900/60 w-full text-center space-y-1 text-[10px] text-slate-500">
-          <div className="flex justify-between font-mono">
-            <span>Dự kiến thăng tiến:</span>
-            <span className="text-emerald-400">+{actualExpGained} Tu Vi (+50 Linh Thạch)</span>
+        {/* Rewards footer */}
+        {mode === 'FOCUS' && (
+          <div className="mt-4 pt-3 border-t border-slate-900/60 w-full flex justify-around text-[9px] text-slate-500 font-mono">
+            <span>Tu Vi: <strong className="text-emerald-400">+{actualExpGained}</strong></span>
+            <span>Linh Thạch: <strong className="text-amber-400">+{actualCoinsGained}</strong></span>
+            {gatheringPill && <span className="text-emerald-500">Tụ Khí Đan +25%</span>}
           </div>
-          {gatheringPill && (
-            <div className="flex justify-between font-mono text-[9px] text-emerald-500">
-              <span>Hấp thu Tụ Khí Đan:</span>
-              <span>+25% EXP</span>
-            </div>
-          )}
-          {hasQiArray && (
-            <div className="flex justify-between font-mono text-[9px] text-teal-400">
-              <span>Hộ pháp Tụ Linh Trận:</span>
-              <span>+2 Tu Vi / 5s</span>
-            </div>
-          )}
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
+
+

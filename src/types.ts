@@ -159,4 +159,12 @@ export interface CultivationManual {
   createdAt: string;
   completedAt?: string;
 }
-
+export interface GardenPlant {
+  id: string;
+  name: string;
+  duration: number; // in minutes
+  status: 'HARVESTED' | 'WITHERED';
+  harvestedAt: string; // YYYY-MM-DD
+  xpGained: number;
+  linhThachGained: number;
+}

@@ -391,7 +391,7 @@ export default function TodoSection({
             <h4 className="text-2xl font-black text-slate-100 font-mono mt-0.5">
               {todoItems.filter(i => i.isCompleted).length}/{todoItems.length}
             </h4>
-            <p className="text-[9px] text-slate-400 mt-0.5">Tổng đại nguyện hoàn thành</p>
+            <p className="text-[9px] text-slate-400 mt-0.5">Tổng nhiệm vụ hoàn thành</p>
           </div>
           <div className="p-2.5 bg-amber-950/40 border border-amber-900/40 rounded-xl text-amber-500">
             <ListTodo className="w-5 h-5" />
@@ -401,7 +401,7 @@ export default function TodoSection({
         {/* Daily Stat */}
         <div className="bg-[#0f141c]/80 border border-slate-800/80 rounded-2xl p-4 flex items-center justify-between shadow-lg">
           <div>
-            <p className="text-[10px] text-emerald-500 uppercase tracking-wider font-semibold">ĐẠI NGUYỆN HÔM NAY</p>
+            <p className="text-[10px] text-emerald-500 uppercase tracking-wider font-semibold">NHIỆM VỤ HÔM NAY</p>
             <h4 className="text-2xl font-black text-slate-100 font-mono mt-0.5">
               {todoItems.filter(i => (i.dueDate || i.createdAt.split('T')[0]) === new Date().toISOString().split('T')[0] && i.isCompleted).length}/{todoItems.filter(i => (i.dueDate || i.createdAt.split('T')[0]) === new Date().toISOString().split('T')[0]).length}
             </h4>
@@ -674,7 +674,7 @@ export default function TodoSection({
                             <button
                               onClick={() => handleDeleteWithGoogleSync(item)}
                               className="text-slate-600 hover:text-rose-400 p-0.5 rounded cursor-pointer"
-                              title="Xóa Đại Nguyện"
+                              title="Xóa Nhiệm Vụ"
                             >
                               <Trash2 className="w-2.5 h-2.5" />
                             </button>
@@ -695,7 +695,7 @@ export default function TodoSection({
         })}
       </div>
 
-      {/* Báo Cáo Nhắc Nhở Đại Nguyện Chưa Thành */}
+      {/* Báo Cáo Nhắc Nhở Nhiệm Vụ Chưa Thành */}
       {pendingTodosUpToToday.length > 0 && (
         <div className="bg-rose-950/20 border border-rose-900/60 rounded-2xl p-5 shadow-xl space-y-3">
           <div className="flex items-center gap-2 pb-2 border-b border-rose-900/40">
@@ -708,8 +708,8 @@ export default function TodoSection({
           </div>
 
           <p className="text-[11px] text-slate-300 leading-relaxed">
-            Hỡi Đạo hữu, Linh Trận phát hiện <strong className="text-rose-400 font-mono">{pendingTodosUpToToday.length} đại nguyện</strong> vẫn chưa hoàn thành tính đến ngày hôm nay. {pendingTodosUpToToday.filter(i => i.dueDate && i.dueDate < todayStr).length > 0 && <span>Trong đó có <strong className="text-rose-400 font-mono">{pendingTodosUpToToday.filter(i => i.dueDate && i.dueDate < todayStr).length} việc đã quá kỳ hạn</strong>! </span>}
-            Cơ duyên tu tiên trôi qua chớp mắt, nếu trì hoãn đạo quả sẽ tiêu hao, tâm ma quấy nhiễu. Hãy mau chóng thiền định và hoàn thành các đại nguyện dưới đây để vững bước trên con đường đắc đạo:
+            Hỡi Đạo hữu, Linh Trận phát hiện <strong className="text-rose-400 font-mono">{pendingTodosUpToToday.length} nhiệm vụ</strong> vẫn chưa hoàn thành tính đến ngày hôm nay. {pendingTodosUpToToday.filter(i => i.dueDate && i.dueDate < todayStr).length > 0 && <span>Trong đó có <strong className="text-rose-400 font-mono">{pendingTodosUpToToday.filter(i => i.dueDate && i.dueDate < todayStr).length} việc đã quá kỳ hạn</strong>! </span>}
+            Cơ duyên tu tiên trôi qua chớp mắt, nếu trì hoãn đạo quả sẽ tiêu hao, tâm ma quấy nhiễu. Hãy mau chóng thiền định và hoàn thành các nhiệm vụ dưới đây để vững bước trên con đường đắc đạo:
           </p>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
@@ -740,7 +740,7 @@ export default function TodoSection({
             })}
             {pendingTodosUpToToday.length > 6 && (
               <div className="col-span-full text-center text-[10px] text-slate-500 italic">
-                ... và {pendingTodosUpToToday.length - 6} đại nguyện chưa hoàn thành khác đang chờ Đạo hữu rèn luyện.
+                ... và {pendingTodosUpToToday.length - 6} nhiệm vụ chưa hoàn thành khác đang chờ Đạo hữu rèn luyện.
               </div>
             )}
           </div>
@@ -751,7 +751,7 @@ export default function TodoSection({
       <div className="bg-[#0f141c]/80 border border-slate-800/80 rounded-2xl p-5 shadow-xl">
         <h4 className="text-xs font-bold text-slate-100 uppercase tracking-wider flex items-center gap-1.5 border-b border-slate-900 pb-2 mb-3">
           <Plus className="w-4 h-4 text-amber-500" />
-          Khai Phát Ý Nguyện Toàn Diện (Thêm Đại Nguyện)
+          Thiết Lập Nhiệm Vụ Mới
         </h4>
 
         <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
@@ -815,10 +815,10 @@ export default function TodoSection({
                   <Trash2 className="w-5 h-5" />
                 </div>
                 <h3 className="text-sm font-black text-slate-100 uppercase tracking-wide">
-                  Xóa Đại Nguyện
+                  Xóa Nhiệm Vụ
                 </h3>
                 <p className="text-[11px] text-slate-400 leading-relaxed font-sans">
-                  Đạo hữu có chắc chắn muốn xóa Đại Nguyện: <span className="text-amber-400 font-bold">"{deletingTodo.title}"</span>? Hành động này không thể hoàn tác.
+                  Đạo hữu có chắc chắn muốn xóa nhiệm vụ: <span className="text-amber-400 font-bold">"{deletingTodo.title}"</span>? Hành động này không thể hoàn tác.
                 </p>
               </div>
 

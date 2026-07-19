@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, collection, getDocs } from 'firebase/firestore';
 import { db } from './firebase';
 
 export interface CultivationSaveData {
@@ -54,5 +54,36 @@ export async function loadUserDataFromCloud(uid: string): Promise<CultivationSav
   } catch (error) {
     console.error('Error loading user data from Firestore:', error);
     throw error;
+  }
+}
+
+export interface LeaderboardUser {
+  uid: string;
+  userName: string;
+  level: number;
+  totalExp: number;
+  currentStreak: number;
+}
+
+export async function fetchLeaderboardFromCloud(): Promise<LeaderboardUser[]> {
+  try {
+    const querySnapshot = await getDocs(collection(db, 'users'));
+    const leaderboard: LeaderboardUser[] = [];
+    querySnapshot.forEach((docSnap) => {
+      const data = docSnap.data();
+      if (data.userName && data.cultState) {
+        leaderboard.push({
+          uid: docSnap.id,
+          userName: data.userName,
+          level: data.cultState.level || 1,
+          totalExp: data.cultState.totalExp || 0,
+          currentStreak: data.cultState.currentStreak || 0,
+        });
+      }
+    });
+    return leaderboard;
+  } catch (error) {
+    console.error('Error fetching leaderboard:', error);
+    return [];
   }
 }

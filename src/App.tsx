@@ -17,7 +17,8 @@ import {
   Priority,
   TodoItem,
   CultivationManual,
-  CultivationNote
+  CultivationNote,
+  GardenPlant
 } from './types';
 import { DEFAULT_CHALLENGES, getRealmInfo } from './data';
 import CultivationHeader from './components/CultivationHeader';
@@ -32,8 +33,9 @@ import TodoSection from './components/TodoSection';
 import ForbiddenNotes from './components/ForbiddenNotes';
 import DailyRituals from './components/DailyRituals';
 import CultivationManualsSection from './components/CultivationManualsSection';
+import SpiritualGarden from './components/SpiritualGarden';
 import { initAuth, googleSignIn, logout as firebaseLogout } from './lib/firebase';
-import { saveUserDataToCloud, loadUserDataFromCloud } from './lib/firestoreSync';
+import { saveUserDataToCloud, loadUserDataFromCloud, fetchLeaderboardFromCloud } from './lib/firestoreSync';
 import { User } from 'firebase/auth';
 import {
   Download,
@@ -211,7 +213,7 @@ export default function App() {
       return {
         id: todo.id,
         title: todo.title,
-        description: todo.type === 'WEEK' ? 'Đại Nguyện Hàng Tuần' : todo.type === 'MONTH' ? 'Đại Nguyện Hàng Tháng' : 'Đại Nguyện Hằng Ngày',
+        description: todo.type === 'WEEK' ? 'Nhiệm Vụ Hàng Tuần' : todo.type === 'MONTH' ? 'Nhiệm Vụ Hàng Tháng' : 'Nhiệm Vụ Hằng Ngày',
         priority,
         isCompleted: todo.isCompleted,
         dueDate: todo.dueDate || getLocalDateString(new Date(todo.createdAt)),
@@ -351,6 +353,21 @@ export default function App() {
     localStorage.setItem('tlk_forbidden_notes', JSON.stringify(notes));
   }, [notes]);
 
+  const [gardenPlants, setGardenPlants] = useState<GardenPlant[]>(() => {
+    const saved = localStorage.getItem('tlk_garden_plants');
+    if (saved) {
+      try { return JSON.parse(saved); } catch (e) { /* fallback */ }
+    }
+    return [];
+  });
+
+  useEffect(() => {
+    localStorage.setItem('tlk_garden_plants', JSON.stringify(gardenPlants));
+  }, [gardenPlants]);
+
+  const [leaderboard, setLeaderboard] = useState<any[]>([]);
+  const [isFetchingLeaderboard, setIsFetchingLeaderboard] = useState<boolean>(false);
+
   // --- GOOGLE LOGIN & CLOUD SYNC STATES ---
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isCloudSyncing, setIsCloudSyncing] = useState<boolean>(false);
@@ -423,42 +440,92 @@ export default function App() {
     localStorage.setItem('tlk_todos', JSON.stringify(todoItems));
   }, [todoItems]);
 
+  const getStreakFromLogs = (logs: DailyLog[]): number => {
+    if (!logs || logs.length === 0) return 0;
+    const activeDays = logs
+      .filter(log => log.meditationMinutes > 0 || log.tasksCompleted > 0)
+      .map(log => log.date);
+
+    if (activeDays.length === 0) return 0;
+
+    const sortedDates = Array.from(new Set(activeDays))
+      .sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+
+    const todayDateStr = getLocalDateString();
+    const yesterdayDate = new Date();
+    yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+    const yesterdayDateStr = getLocalDateString(yesterdayDate);
+
+    if (sortedDates[0] !== todayDateStr && sortedDates[0] !== yesterdayDateStr) {
+      return 0;
+    }
+
+    let streak = 0;
+    let currentDateToCheck = new Date(sortedDates[0]);
+
+    for (let i = 0; i < sortedDates.length; i++) {
+      const logDate = new Date(sortedDates[i]);
+      const diffTime = Math.abs(currentDateToCheck.getTime() - logDate.getTime());
+      const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+
+      if (diffDays === 0) {
+        streak++;
+      } else if (diffDays === 1) {
+        streak++;
+        currentDateToCheck = logDate;
+      } else {
+        break;
+      }
+    }
+    return streak;
+  };
+
   // --- GOOGLE AUTH & CLOUD SYNC EFFECTS ---
+  const handleGoogleSignIn = async () => {
+    try {
+      const result = await googleSignIn();
+      if (result) {
+        await handleAuthSuccess(result.user);
+      }
+    } catch (e) {
+      alert('Đăng nhập Google thất bại. Đạo hữu vui lòng kiểm tra cấu hình domain hoặc thử lại.');
+    }
+  };
+
   const handleAuthSuccess = async (user: User) => {
     setCurrentUser(user);
     setIsCloudSyncing(true);
     try {
       const cloudData = await loadUserDataFromCloud(user.uid);
       if (cloudData) {
-        if (confirm(`✨ PHÁT HIỆN ĐẠO QUẢ TRÊN ĐÁM MÂY!\n\nChào mừng Đạo hữu ${cloudData.userName} quay trở lại.\nĐạo hữu có muốn đồng bộ tiến trình tu luyện mới nhất từ đám mây xuống trình duyệt này không?`)) {
-          setUserName(cloudData.userName);
-          setPlanningCompletedDate(cloudData.planningCompletedDate);
-          setReflectionCompletedDate(cloudData.reflectionCompletedDate);
-          setTodoItems(cloudData.todoItems || []);
-          setHabits(cloudData.habits || []);
-          setCultState(cloudData.cultState);
-          setDailyLogs(cloudData.dailyLogs || []);
-          setIeltsLogs(cloudData.ieltsLogs || []);
-          setIeltsTargets(cloudData.ieltsTargets);
-          setCamBooksList(cloudData.camBooksList || []);
-          setManuals(cloudData.manuals || []);
-          setNotes(cloudData.notes || []);
-          
-          localStorage.setItem('tlk_username', cloudData.userName);
-          localStorage.setItem('tlk_planning_completed_date', cloudData.planningCompletedDate);
-          localStorage.setItem('tlk_reflection_completed_date', cloudData.reflectionCompletedDate);
-          localStorage.setItem('tlk_todos', JSON.stringify(cloudData.todoItems || []));
-          localStorage.setItem('tlk_habits', JSON.stringify(cloudData.habits || []));
-          localStorage.setItem('tlk_cult_state', JSON.stringify(cloudData.cultState));
-          localStorage.setItem('tlk_daily_logs', JSON.stringify(cloudData.dailyLogs || []));
-          localStorage.setItem('tlk_ielts_logs', JSON.stringify(cloudData.ieltsLogs || []));
-          localStorage.setItem('tlk_ielts_targets', JSON.stringify(cloudData.ieltsTargets));
-          localStorage.setItem('tlk_cam_books_list', JSON.stringify(cloudData.camBooksList || []));
-          localStorage.setItem('tlk_manuals', JSON.stringify(cloudData.manuals || []));
-          localStorage.setItem('tlk_forbidden_notes', JSON.stringify(cloudData.notes || []));
-          
-          alert('✨ Đồng bộ đạo quả thành công!');
-        }
+        // Silently and automatically sync progress
+        setUserName(cloudData.userName);
+        setPlanningCompletedDate(cloudData.planningCompletedDate);
+        setReflectionCompletedDate(cloudData.reflectionCompletedDate);
+        setTodoItems(cloudData.todoItems || []);
+        setHabits(cloudData.habits || []);
+        setCultState(cloudData.cultState);
+        setDailyLogs(cloudData.dailyLogs || []);
+        setIeltsLogs(cloudData.ieltsLogs || []);
+        setIeltsTargets(cloudData.ieltsTargets);
+        setCamBooksList(cloudData.camBooksList || []);
+        setManuals(cloudData.manuals || []);
+        setNotes(cloudData.notes || []);
+        setGardenPlants((cloudData as any).gardenPlants || []);
+        
+        localStorage.setItem('tlk_username', cloudData.userName);
+        localStorage.setItem('tlk_planning_completed_date', cloudData.planningCompletedDate);
+        localStorage.setItem('tlk_reflection_completed_date', cloudData.reflectionCompletedDate);
+        localStorage.setItem('tlk_todos', JSON.stringify(cloudData.todoItems || []));
+        localStorage.setItem('tlk_habits', JSON.stringify(cloudData.habits || []));
+        localStorage.setItem('tlk_cult_state', JSON.stringify(cloudData.cultState));
+        localStorage.setItem('tlk_daily_logs', JSON.stringify(cloudData.dailyLogs || []));
+        localStorage.setItem('tlk_ielts_logs', JSON.stringify(cloudData.ieltsLogs || []));
+        localStorage.setItem('tlk_ielts_targets', JSON.stringify(cloudData.ieltsTargets));
+        localStorage.setItem('tlk_cam_books_list', JSON.stringify(cloudData.camBooksList || []));
+        localStorage.setItem('tlk_manuals', JSON.stringify(cloudData.manuals || []));
+        localStorage.setItem('tlk_forbidden_notes', JSON.stringify(cloudData.notes || []));
+        localStorage.setItem('tlk_garden_plants', JSON.stringify((cloudData as any).gardenPlants || []));
       } else {
         // Initial upload of current local state
         const localData = {
@@ -469,13 +536,17 @@ export default function App() {
           tasks: [],
           habits,
           challenges,
-          cultState,
+          cultState: {
+            ...cultState,
+            currentStreak: getStreakFromLogs(dailyLogs),
+          },
           dailyLogs,
           ieltsLogs,
           ieltsTargets,
           camBooksList,
           manuals,
           notes,
+          gardenPlants,
         };
         await saveUserDataToCloud(user.uid, localData);
       }
@@ -498,6 +569,12 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
+  useEffect(() => {
+    if (currentUser) {
+      handleFetchLeaderboard();
+    }
+  }, [currentUser]);
+
   // Debounced auto-sync to cloud when states change
   useEffect(() => {
     if (!currentUser) return;
@@ -512,13 +589,17 @@ export default function App() {
           tasks: [],
           habits,
           challenges,
-          cultState,
+          cultState: {
+            ...cultState,
+            currentStreak: getStreakFromLogs(dailyLogs),
+          },
           dailyLogs,
           ieltsLogs,
           ieltsTargets,
           camBooksList,
           manuals,
           notes,
+          gardenPlants,
         };
         await saveUserDataToCloud(currentUser.uid, dataToSave);
         console.log('☁️ Auto-synced data to Firebase Firestore');
@@ -543,6 +624,7 @@ export default function App() {
     camBooksList,
     manuals,
     notes,
+    gardenPlants,
   ]);
 
   // --- CULTIVATION CORE ACTIONS ---
@@ -1054,21 +1136,70 @@ export default function App() {
     setChallenges(prev => prev.filter(ch => ch.id !== id));
   };
 
-  // Meditation Complete callback
-  const handleMeditationComplete = (minutes: number) => {
-    // 25 minutes Pomodoro gives 50 Base XP (+ potential pill buff of +25%) and 50 Linh Thach
-    const pillMultiplier = cultState.inventory.some(i => i.itemId === 'tu_khi_dan') ? 0.25 : 0;
-    const expGained = Math.round(50 * (1 + pillMultiplier));
-    const coinsGained = 30;
+  const handleFetchLeaderboard = async () => {
+    setIsFetchingLeaderboard(true);
+    try {
+      const data = await fetchLeaderboardFromCloud();
+      // Sort: 1. Level descending, 2. TotalExp descending, 3. Streak descending
+      const sorted = data.sort((a, b) => {
+        if (b.level !== a.level) return b.level - a.level;
+        if (b.totalExp !== a.totalExp) return b.totalExp - a.totalExp;
+        return b.currentStreak - a.currentStreak;
+      });
+      setLeaderboard(sorted);
+    } catch (e) {
+      console.error('Failed to fetch leaderboard:', e);
+    } finally {
+      setIsFetchingLeaderboard(false);
+    }
+  };
 
-    addExp(expGained, coinsGained);
+  // Meditation Complete callback
+  const handleMeditationComplete = (
+    minutes: number,
+    xpGained = 50,
+    linhThachGained = 30,
+    plantName?: string,
+    plantStatus?: 'HARVESTED' | 'WITHERED'
+  ) => {
+    // If withered plant, just add to garden and return (no rewards)
+    if (plantStatus === 'WITHERED') {
+      const newPlant: GardenPlant = {
+        id: `plant_${Date.now()}`,
+        name: plantName || 'Ngọc Linh Chi',
+        duration: 25,
+        status: 'WITHERED',
+        harvestedAt: getLocalDateString(),
+        xpGained: 0,
+        linhThachGained: 0
+      };
+      setGardenPlants(prev => [newPlant, ...prev]);
+      return;
+    }
+
+    addExp(xpGained, linhThachGained);
     updateDailyLog(0, minutes, 0);
     updateChallengeValue('MEDITATION_MINUTES', minutes);
     setCultState(prev => ({ ...prev, meditationMinutes: prev.meditationMinutes + minutes }));
 
-    // If Tu Khi Dan pill is used, consume one
-    if (pillMultiplier > 0) {
+    // Consume Tu Khi Dan pill if active
+    const pillActive = cultState.inventory.some(i => i.itemId === 'tu_khi_dan');
+    if (pillActive) {
       consumeItemFromInventory('tu_khi_dan');
+    }
+
+    // Add harvested plant to garden list
+    if (plantName) {
+      const newPlant: GardenPlant = {
+        id: `plant_${Date.now()}`,
+        name: plantName,
+        duration: minutes,
+        status: 'HARVESTED',
+        harvestedAt: getLocalDateString(),
+        xpGained,
+        linhThachGained
+      };
+      setGardenPlants(prev => [newPlant, ...prev]);
     }
   };
 
@@ -1198,60 +1329,6 @@ export default function App() {
   };
 
   // Calculations for Cultivation Profile stats
-  const todayStrStr = getLocalDateString();
-  const todayActiveLog = dailyLogs.find(l => l.date === todayStrStr);
-  const todayMeditationMinutes = todayActiveLog ? todayActiveLog.meditationMinutes : 0;
-
-  const getCultivationStreak = (): number => {
-    if (!dailyLogs || dailyLogs.length === 0) return 0;
-    const activeDays = dailyLogs
-      .filter(log => log.meditationMinutes > 0 || log.tasksCompleted > 0)
-      .map(log => log.date);
-
-    if (activeDays.length === 0) return 0;
-
-    const sortedDates = Array.from(new Set(activeDays))
-      .sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
-
-    const todayDateStr = getLocalDateString();
-    const yesterdayDate = new Date();
-    yesterdayDate.setDate(yesterdayDate.getDate() - 1);
-    const yesterdayDateStr = getLocalDateString(yesterdayDate);
-
-    if (sortedDates[0] !== todayDateStr && sortedDates[0] !== yesterdayDateStr) {
-      return 0;
-    }
-
-    let streak = 0;
-    let currentDateToCheck = new Date(sortedDates[0]);
-
-    for (let i = 0; i < sortedDates.length; i++) {
-      const logDate = new Date(sortedDates[i]);
-      const diffTime = Math.abs(currentDateToCheck.getTime() - logDate.getTime());
-      const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
-
-      if (diffDays === 0) {
-        streak++;
-      } else if (diffDays === 1) {
-        streak++;
-        currentDateToCheck = logDate;
-      } else {
-        break;
-      }
-    }
-    return streak;
-  };
-  const cultivationStreak = getCultivationStreak();
-
-  const todayStr = getLocalDateString();
-  const currentYearMonth = todayStr.slice(0, 7); // "YYYY-MM"
-  const monthlyTasksUpToToday = tasks.filter(t => {
-    return t.dueDate.startsWith(currentYearMonth) && t.dueDate <= todayStr;
-  });
-
-  const totalTasksCount = monthlyTasksUpToToday.length;
-  const completedTasksCount = monthlyTasksUpToToday.filter(t => t.isCompleted).length;
-  const taskCompletionRatePercentage = totalTasksCount > 0 ? Math.round((completedTasksCount / totalTasksCount) * 100) : 0;
 
   return (
     <div className="min-h-screen text-slate-300 relative selection:bg-amber-500/20 selection:text-amber-300" id="main-applet-container">
@@ -1432,16 +1509,7 @@ export default function App() {
                   </div>
                 ) : (
                   <button
-                    onClick={async () => {
-                      try {
-                        const result = await googleSignIn();
-                        if (result) {
-                          await handleAuthSuccess(result.user);
-                        }
-                      } catch (e) {
-                        alert('Đăng nhập Google thất bại. Đạo hữu vui lòng kiểm tra cấu hình domain hoặc thử lại.');
-                      }
-                    }}
+                    onClick={handleGoogleSignIn}
                     className="flex items-center gap-1 px-3 py-1.5 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-500 hover:to-amber-600 text-slate-950 font-extrabold text-[9px] rounded-lg uppercase tracking-wider transition-all cursor-pointer shadow-md shadow-amber-950/20"
                   >
                     <LogIn className="w-3.5 h-3.5 stroke-[2.5]" />
@@ -1506,7 +1574,7 @@ export default function App() {
                 id="tab-todos"
               >
                 <ListTodo className="w-3.5 h-3.5" />
-                Đại Nguyện Hằng Ngày
+                Nhiệm Vụ Tông Môn
               </button>
 
               <button
@@ -1607,7 +1675,6 @@ export default function App() {
                       />
                     </div>
 
-                    {/* Integrated Habit Tracker */}
                     <HabitSection
                       habits={habits}
                       onAddHabit={handleAddHabit}
@@ -1619,55 +1686,10 @@ export default function App() {
                   <div className="space-y-6">
                     <StreakGrid dailyLogs={dailyLogs} todoItems={todoItems} />
 
-                    {/* Quick Stats list card */}
-                    <div className="bg-[#0f141c]/80 border border-slate-800/80 p-5 rounded-2xl shadow-xl space-y-3 font-mono text-[10px]">
-                      <h4 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5 font-sans">
-                        <Flame className="w-4 h-4 text-orange-500 animate-pulse" />
-                        Hồ Sơ Tu Vi & Đạo Quả
-                      </h4>
-                      <p className="text-[10px] text-slate-500 font-sans leading-relaxed">
-                        Thiền định tích lũy linh khí vô song, ghi nhận thành tích hành trì và duy trì định lực tu đạo bền bỉ.
-                      </p>
-                      <div className="grid grid-cols-2 gap-2 pt-1 font-sans">
-                        <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-900">
-                          <p className="text-slate-500 uppercase tracking-wider text-[8px] mb-0.5">Tổng Giờ Thiền</p>
-                          <strong className="text-xs text-slate-200">{cultState.meditationMinutes} phút</strong>
-                        </div>
-                        <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-900">
-                          <p className="text-slate-500 uppercase tracking-wider text-[8px] mb-0.5">Nhiệm Vụ Đã Xong</p>
-                          <strong className="text-xs text-slate-200">{todoItems.filter(i => i.isCompleted).length} nhiệm vụ</strong>
-                        </div>
-                        <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-900">
-                          <p className="text-slate-500 uppercase tracking-wider text-[8px] mb-0.5">Bế Quan Hôm Nay</p>
-                          <strong className="text-xs text-emerald-400">{todayMeditationMinutes} phút</strong>
-                        </div>
-                        <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-900">
-                          <p className="text-slate-500 uppercase tracking-wider text-[8px] mb-0.5">Chuỗi Ngày Tu Luyện</p>
-                          <strong className="text-xs text-amber-400">{cultivationStreak} ngày 🔥</strong>
-                        </div>
-                        <div className="bg-slate-950 p-2.5 rounded-xl border border-slate-900 col-span-2">
-                          <div className="flex justify-between items-center text-[8px] text-slate-500 mb-1 uppercase tracking-wider">
-                            <span>Tỷ lệ đại nguyện hoàn thành (trong tháng đến nay)</span>
-                            <span className="text-indigo-400 font-bold text-xs">{taskCompletionRatePercentage}%</span>
-                          </div>
-                          <div className="w-full bg-slate-900 rounded-full h-1.5 overflow-hidden">
-                            <div 
-                              className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all duration-500" 
-                              style={{ width: `${taskCompletionRatePercentage}%` }}
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="bg-slate-950/30 border border-slate-900 p-5 rounded-2xl space-y-2">
-                      <h5 className="text-[10px] text-amber-500 uppercase tracking-wider font-extrabold flex items-center gap-1">
-                        <Sparkles className="w-3 h-3" /> Linh Đan Thượng Hạng
-                      </h5>
-                      <p className="text-[11px] text-slate-400 leading-relaxed">
-                        Ghé thăm <strong>Tàng Bảo Các (Shop)</strong> để đổi Linh Thạch lấy các loại linh thảo trợ lực nhân đôi hiệu năng hấp thụ tu vi thiền định!
-                      </p>
-                    </div>
+                    <SpiritualGarden
+                      plants={gardenPlants}
+                      onClearGarden={() => setGardenPlants([])}
+                    />
                   </div>
                 </div>
 
@@ -1727,6 +1749,10 @@ export default function App() {
                   onDeleteChallenge={handleDeleteChallenge}
                   tasks={tasks}
                   todoItems={todoItems}
+                  currentUser={currentUser}
+                  leaderboard={leaderboard}
+                  isFetchingLeaderboard={isFetchingLeaderboard}
+                  onRefreshLeaderboard={handleFetchLeaderboard}
                 />
               </div>
             </main>

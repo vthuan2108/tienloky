@@ -54,18 +54,28 @@ export default function StreakGrid({ dailyLogs, todoItems }: StreakGridProps) {
     return days;
   };
 
-  // 2. YEAR VIEW CALCULATIONS (Last 365 Days)
+  // 2. YEAR VIEW CALCULATIONS (Current calendar year only)
   const getYearDays = () => {
     const days = [];
     const oneDayMs = 24 * 60 * 60 * 1000;
-    const startDate = new Date(today.getTime() - 363 * oneDayMs);
     
+    // Start of current calendar year
+    const startDate = new Date(currentYear, 0, 1);
     let startDayOfWeek = startDate.getDay() - 1;
     if (startDayOfWeek < 0) startDayOfWeek = 6;
     
     const alignedStartDate = new Date(startDate.getTime() - startDayOfWeek * oneDayMs);
 
-    for (let i = 0; i < 371; i++) { // ~53 weeks
+    // End of current calendar year
+    const endDate = new Date(currentYear, 11, 31);
+    let endDayOfWeek = endDate.getDay() - 1;
+    if (endDayOfWeek < 0) endDayOfWeek = 6;
+    
+    const alignedEndDate = new Date(endDate.getTime() + (6 - endDayOfWeek) * oneDayMs);
+    
+    const totalDays = Math.round((alignedEndDate.getTime() - alignedStartDate.getTime()) / oneDayMs) + 1;
+
+    for (let i = 0; i < totalDays; i++) {
       const date = new Date(alignedStartDate.getTime() + i * oneDayMs);
       const yyyy = date.getFullYear();
       const mm = String(date.getMonth() + 1).padStart(2, '0');
@@ -74,7 +84,7 @@ export default function StreakGrid({ dailyLogs, todoItems }: StreakGridProps) {
       days.push({
         date,
         dateStr,
-        log: getLogForDate(dateStr)
+        log: yyyy === currentYear ? getLogForDate(dateStr) : undefined
       });
     }
     return days;
@@ -95,7 +105,6 @@ export default function StreakGrid({ dailyLogs, todoItems }: StreakGridProps) {
     return 'bg-[#39d353] border-[#39d353]/40 shadow-[0_0_10px_rgba(57,211,83,0.35)]';
   };
 
-  const WEEK_DAYS = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
   const monthNames = [
     'Tháng 1', 'Tháng 2', 'Tháng 3', 'Tháng 4', 'Tháng 5', 'Tháng 6',
     'Tháng 7', 'Tháng 8', 'Tháng 9', 'Tháng 10', 'Tháng 11', 'Tháng 12'
@@ -240,73 +249,90 @@ export default function StreakGrid({ dailyLogs, todoItems }: StreakGridProps) {
       </div>
 
       {viewMode === 'MONTH' ? (
-        // Month Calendar View
-        <div className="space-y-3">
-          <div className="flex items-center justify-between text-[9.5px] font-bold text-slate-400 border-b border-slate-900 pb-1.5">
-            <span>{monthNames[currentMonth]} {currentYear}</span>
-            <span className="text-[8px] text-emerald-400 flex items-center gap-0.5 uppercase tracking-wider font-mono">
-              <Sparkles className="w-2.5 h-2.5" /> Bế quan định lực
+        // Month Calendar View (Standard grid format)
+        <div className="space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-900 pb-2">
+            <span className="text-sm font-bold text-slate-200">{monthNames[currentMonth]} {currentYear}</span>
+            <span className="text-[10px] text-emerald-400 flex items-center gap-1 uppercase tracking-wider font-mono font-bold">
+              <Sparkles className="w-3.5 h-3.5" /> bế quan định lực
             </span>
           </div>
 
-          <div className="grid grid-cols-7 gap-1.5 text-center text-[9px] font-mono">
-            {WEEK_DAYS.map(day => (
-              <div key={day} className="text-slate-500 font-bold py-0.5">
-                {day}
-              </div>
-            ))}
+          <div className="w-full max-w-md mx-auto">
+            {/* Weekday Headers */}
+            <div className="grid grid-cols-7 gap-2 text-center text-[10px] font-extrabold text-slate-500 uppercase tracking-wider mb-2">
+              <span>T2</span>
+              <span>T3</span>
+              <span>T4</span>
+              <span>T5</span>
+              <span>T6</span>
+              <span>T7</span>
+              <span>CN</span>
+            </div>
 
-            {monthDays.map((day, idx) => {
-              if (day === null) {
-                return <div key={`empty-${idx}`} className="aspect-square opacity-0" />;
-              }
+            {/* Calendar Day Blocks */}
+            <div className="grid grid-cols-7 gap-2">
+              {monthDays.map((day, idx) => {
+                if (day === null) {
+                  return <div key={`empty-${idx}`} className="aspect-square" />;
+                }
 
-              const isToday = day.dayNum === today.getDate();
-              const hasActivity = day.log && (day.log.tuViGained > 0 || day.log.meditationMinutes > 0 || day.log.tasksCompleted > 0);
+                const isToday = day.dayNum === today.getDate() && currentMonth === today.getMonth() && currentYear === today.getFullYear();
+                
+                // Color intensity logic helper
+                const hasLog = !!day.log;
+                const activity = day.log ? (day.log.tuViGained || 0) + (day.log.meditationMinutes * 2) + (day.log.tasksCompleted * 10) : 0;
+                const isLightBg = hasLog && activity >= 60;
+                const textColor = hasLog 
+                  ? (isLightBg ? 'text-slate-950 font-black' : 'text-slate-100 font-bold') 
+                  : 'text-slate-400 hover:text-slate-200';
 
-              return (
-                <div
-                  key={day.dateStr}
-                  className={`aspect-square rounded-lg flex flex-col items-center justify-center relative border transition-all text-[9.5px] group cursor-default ${getColorClass(day.log)} ${
-                    isToday ? 'ring-1.5 ring-emerald-500 ring-offset-1 ring-offset-[#0f141c]' : ''
-                  }`}
-                >
-                  <span className={`font-bold font-mono ${hasActivity ? 'text-slate-100' : 'text-slate-400'}`}>
-                    {day.dayNum}
-                  </span>
-
-                  {/* Micro Indicator dot */}
-                  {hasActivity && (
-                    <span className="absolute bottom-1 w-1 h-1 rounded-full bg-emerald-300 animate-pulse" />
-                  )}
-
-                  {/* Custom Rich Tooltip on Hover */}
-                  <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-44 p-2 bg-slate-950 border border-slate-800 rounded-lg shadow-2xl text-[9px] leading-normal text-slate-300 opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity duration-150 z-50 font-sans text-left">
-                    <p className="font-bold text-slate-200 border-b border-slate-900 pb-1 mb-1 font-mono text-center">
-                      {day.dateStr} {isToday ? '(Hôm nay)' : ''}
-                    </p>
-                    {day.log ? (
-                      <div className="space-y-1">
-                        <p className="flex justify-between">
-                          <span>Tu Vi Tích Lũy:</span>
-                          <span className="font-bold text-amber-400">+{day.log.tuViGained} XP</span>
-                        </p>
-                        <p className="flex justify-between">
-                          <span>Thời Gian Thiền:</span>
-                          <span className="font-bold text-blue-400">{day.log.meditationMinutes}p</span>
-                        </p>
-                        <p className="flex justify-between">
-                          <span>Đại Nguyện Thành:</span>
-                          <span className="font-bold text-emerald-400">{day.log.tasksCompleted} việc</span>
-                        </p>
-                      </div>
-                    ) : (
-                      <p className="text-slate-500 text-center italic py-0.5">Chưa ghi nhận đạo quả</p>
+                return (
+                  <div
+                    key={day.dateStr}
+                    className={`aspect-square rounded-xl flex flex-col items-center justify-center relative group border cursor-pointer transition-all ${
+                      hasLog
+                        ? getColorClass(day.log)
+                        : 'bg-[#111827]/40 border-slate-800/80 hover:border-slate-700/80 hover:bg-[#111827]/60'
+                    } ${
+                      isToday ? 'ring-2 ring-emerald-400/80 ring-offset-2 ring-offset-[#0f141c]' : ''
+                    }`}
+                  >
+                    <span className={`text-xs ${textColor}`}>{day.dayNum}</span>
+                    
+                    {/* Small dot below the number if active */}
+                    {hasLog && (
+                      <span className={`w-1 h-1 rounded-full absolute bottom-1.5 ${isLightBg ? 'bg-slate-950/60' : 'bg-emerald-400/80'}`} />
                     )}
+
+                    {/* Rich Tooltip */}
+                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-40 p-2 bg-slate-950 border border-slate-800 rounded-lg shadow-2xl text-[9px] leading-normal text-slate-300 opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity duration-150 z-50 font-sans text-left">
+                      <p className="font-bold text-slate-200 border-b border-slate-900 pb-1 mb-1 font-mono text-center">
+                        {day.dateStr} {isToday ? '(Hôm nay)' : ''}
+                      </p>
+                      {day.log ? (
+                        <div className="space-y-0.5">
+                          <p className="flex justify-between">
+                            <span>Tu Vi:</span>
+                            <span className="font-bold text-amber-400">+{day.log.tuViGained} XP</span>
+                          </p>
+                          <p className="flex justify-between">
+                            <span>Thiền Định:</span>
+                            <span className="font-bold text-blue-400">{day.log.meditationMinutes}p</span>
+                          </p>
+                          <p className="flex justify-between">
+                            <span>Nhiệm Vụ:</span>
+                            <span className="font-bold text-emerald-400">{day.log.tasksCompleted}</span>
+                          </p>
+                        </div>
+                      ) : (
+                        <p className="text-slate-500 text-center italic py-0.5">Chưa bế quan</p>
+                      )}
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
         </div>
       ) : (
@@ -367,7 +393,7 @@ export default function StreakGrid({ dailyLogs, todoItems }: StreakGridProps) {
                                     <span className="font-bold text-blue-400">{day.log.meditationMinutes}p</span>
                                   </p>
                                   <p className="flex justify-between">
-                                    <span>Đại Nguyện:</span>
+                                    <span>Nhiệm Vụ:</span>
                                     <span className="font-bold text-emerald-400">{day.log.tasksCompleted}</span>
                                   </p>
                                 </div>
